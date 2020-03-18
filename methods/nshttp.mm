@@ -1,0 +1,267 @@
+// -*- mode: cpp; mode: fold -*-
+// Description								/*{{{*/
+/* ######################################################################
+
+   RSH method - Transfer files via rsh compatible program
+
+   Written by Ben Collins <bcollins@debian.org>, Copyright (c) 2000
+   Licensed under the GNU General Public License v2 [no exception clauses]
+
+   ##################################################################### */
+									/*}}}*/
+// Include Files							/*{{{*/
+#include <config.h>
+
+#include <apt-pkg/configuration.h>
+#include <apt-pkg/error.h>
+#include <apt-pkg/fileutl.h>
+#include <apt-pkg/hashes.h>
+#include <apt-pkg/strutl.h>
+
+#include "nshttp.h"
+#include <errno.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <dlfcn.h>
+#include <Foundation/Foundation.h>
+#include <sys/types.h>
+#include <sys/sysctl.h>
+
+#include <apti18n.h>
+
+extern "C" NSDictionary *_CFCopyServerVersionDictionary();
+
+@interface NSDevice : NSObject
++ (NSString *)_uniqueIdentifier;
++ (NSString *)_platform;
++ (NSString *)_kernOSType;
++ (NSString *)_kernOSRelease;
++ (NSUUID *)_uniqueIdentifierUUID;
+@end
+
+@implementation NSDevice
+
++ (NSString *)_uniqueIdentifier {
+    void *gestalt = dlopen("/usr/lib/libMobileGestalt.dylib", RTLD_GLOBAL | RTLD_LAZY);
+    CFStringRef (*MGCopyAnswer)(CFStringRef) = (CFStringRef (*)(CFStringRef))(dlsym(gestalt, "MGCopyAnswer"));
+    return CFBridgingRelease(MGCopyAnswer(CFSTR("UniqueDeviceID")));
+}
+
++ (NSString *)_platform {
+    size_t size;
+    sysctlbyname("hw.machine", NULL, &size, NULL, 0);
+    char *machine = (char *)malloc(size);
+    sysctlbyname("hw.machine", machine, &size, NULL, 0);
+    return [NSString stringWithCString:machine encoding:NSUTF8StringEncoding];
+}
+
++ (NSString *)_kernOSType {
+    char ostype[256];
+    size_t size = sizeof(ostype);
+    sysctlbyname("kern.ostype", ostype, &size, NULL, 0);
+    return [NSString stringWithUTF8String:ostype];
+}
+
++ (NSString *)_kernOSRelease {
+    char osrelease[256];
+    size_t size = sizeof(osrelease);
+    sysctlbyname("kern.osrelease", osrelease, &size, NULL, 0);
+    return [NSString stringWithUTF8String:osrelease];
+}
+
++ (NSString *)systemVersion {
+   NSDictionary *dict = _CFCopyServerVersionDictionary();
+   return [dict objectForKey:@"ProductVersion"];
+}
+
+@end
+
+unsigned long TimeOut = 30;
+Configuration::Item const *HttpOptions = 0;
+time_t HttpMethod::FailTime = 0;
+
+// HttpMethod::HttpMethod - Constructor					/*{{{*/
+HttpMethod::HttpMethod(std::string &&pProg) : aptMethod(std::move(pProg),"1.0",SendConfig)
+{
+   signal(SIGTERM,SigTerm);
+   signal(SIGINT,SigTerm);
+}
+									/*}}}*/
+// HttpMethod::Configuration - Handle a configuration message		/*{{{*/
+// ---------------------------------------------------------------------
+bool HttpMethod::Configuration(std::string Message)
+{
+   // enabling privilege dropping for this method requires configuration…
+   // … which is otherwise lifted straight from root, so use it by default.
+   _config->Set(std::string("Binary::") + Binary + "::APT::Sandbox::User", "");
+
+   if (aptMethod::Configuration(Message) == false)
+      return false;
+
+   std::string const timeconf = std::string("Acquire::") + Binary + "::Timeout";
+   TimeOut = _config->FindI(timeconf, TimeOut);
+   std::string const optsconf = std::string("Acquire::") + Binary + "::Options";
+   HttpOptions = _config->Tree(optsconf.c_str());
+
+   return true;
+}
+									/*}}}*/
+// HttpMethod::SigTerm - Clean up and timestamp the files on exit	/*{{{*/
+// ---------------------------------------------------------------------
+/* */
+void HttpMethod::SigTerm(int)
+{
+   _exit(100);
+}
+									/*}}}*/
+// HttpMethod::Fetch - Fetch a URI					/*{{{*/
+// ---------------------------------------------------------------------
+/* */
+bool HttpMethod::Fetch(FetchItem *Itm)
+{
+   URI Get(Itm->Uri);
+   std::string cppGet = Get;
+   NSURL *URL = [NSURL URLWithString:[NSString stringWithUTF8String:cppGet.c_str()]];
+   __block FetchResult Res;
+   Res.Filename = Itm->DestFile;
+   Res.IMSHit = false;
+
+   __block BOOL success = NO;
+   __block BOOL proceed = NO;
+
+   dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+
+   NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:URL cachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData timeoutInterval:TimeOut];
+   [request setHTTPMethod:@"HEAD"];
+
+   NSString *cfnetworkVersion = [NSBundle bundleWithIdentifier:@"com.apple.CFNetwork"].infoDictionary[(NSString *)kCFBundleVersionKey];
+   [request setValue:[NSString stringWithFormat:@"%@/%@ %@/%@ %@/%@", NSBundle.mainBundle.infoDictionary[(NSString *)kCFBundleNameKey], [NSBundle mainBundle].infoDictionary[(NSString *)kCFBundleVersionKey], @"CFNetwork", cfnetworkVersion, [NSDevice _kernOSType], [NSDevice _kernOSRelease]] forHTTPHeaderField:@"User-Agent"];
+
+   [request setValue:[NSDevice _platform] forHTTPHeaderField:@"X-Machine"];
+   [request setValue:[NSDevice _uniqueIdentifier] forHTTPHeaderField:@"X-Unique-ID"];
+   [request setValue:[NSDevice systemVersion] forHTTPHeaderField:@"X-Firmware"];
+
+   [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *, NSURLResponse *response, NSError *error){
+      NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+      if (error != nil) {
+         if ([error localizedDescription] != nil) {
+            Fail(std::string([error localizedDescription].UTF8String));
+         } else {
+            Fail();
+         }
+      } else if (httpResponse.statusCode == 304) {
+         Res.IMSHit = true;
+         Res.LastModified = Itm->LastModified;
+         URIDone(Res);
+         success = YES;
+      } else if (httpResponse.statusCode < 200 || httpResponse.statusCode >= 400) {
+         Fail(std::string([NSString stringWithFormat:@"HTTP %li", (long)httpResponse.statusCode].UTF8String));
+         success = YES;
+      } else {
+         if (httpResponse.expectedContentLength != NSURLResponseUnknownLength)
+            Res.Size = httpResponse.expectedContentLength;
+         NSString *dateModified = httpResponse.allHeaderFields[@"Date"];
+         if (dateModified){
+            NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+            [formatter setLocale:[NSLocale localeWithLocaleIdentifier:@"en"]];
+            [formatter setDateFormat:@"EEEE, dd LLL yyyy HH:mm:ss zzz"];
+            NSDate *date = [formatter dateFromString:dateModified];
+            this->FailTime = [date timeIntervalSince1970];
+            [formatter release];
+         }
+         success = YES;
+         proceed = YES;
+      }
+      dispatch_semaphore_signal(sem);
+   }] resume];
+
+   Status(_("Connecting to %s"), Get.Host.c_str());
+   dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, TimeOut * NSEC_PER_SEC));
+
+   // Get the files information
+   if (!proceed)
+   {
+      return success;
+   }
+
+   // See if it is an IMS hit
+   if (Itm->LastModified == FailTime) {
+      Res.Size = 0;
+      Res.IMSHit = true;
+      URIDone(Res);
+      return true;
+   }
+
+   // See if the file exists
+   struct stat Buf;
+   if (stat(Itm->DestFile.c_str(),&Buf) == 0) {
+      if (Res.Size == (unsigned long long)Buf.st_size && FailTime == Buf.st_mtime) {
+         Res.Size = Buf.st_size;
+         Res.LastModified = Buf.st_mtime;
+         Res.ResumePoint = Buf.st_size;
+         URIDone(Res);
+         return true;
+      }
+
+      // Resume?
+      if (FailTime == Buf.st_mtime && Res.Size > (unsigned long long)Buf.st_size)
+         Res.ResumePoint = Buf.st_size;
+   }
+
+   // Open the file
+   Hashes Hash(Itm->ExpectedHashes);
+   {
+      [request setHTTPMethod:@"GET"];
+
+      NSURLSessionDownloadTask *task = [[NSURLSession sharedSession] downloadTaskWithRequest:request completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error){
+         NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+         if (httpResponse.statusCode == 200 && !error){
+            NSString *destFile = [NSString stringWithUTF8String:Itm->DestFile.c_str()];
+            [[NSFileManager defaultManager] removeItemAtPath:destFile error:nil];
+            success = [[NSFileManager defaultManager] moveItemAtPath:location.path toPath:destFile error:&error];
+            if (error){
+               success = NO;
+            }
+         }
+         dispatch_semaphore_signal(sem);
+      }];
+      [task resume];
+      dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, TimeOut * NSEC_PER_SEC));
+
+      if (!success){
+         Fail();
+         return true;
+      }
+
+      FileFd Fd(Itm->DestFile,FileFd::WriteExists);
+      Hash.AddFD(Fd,Hashes::UntilEOF);
+
+      URIStart(Res);
+
+      Res.Size = Fd.Size();
+      struct timeval times[2];
+      times[0].tv_sec = FailTime;
+      times[1].tv_sec = FailTime;
+      times[0].tv_usec = times[1].tv_usec = 0;
+      utimes(Fd.Name().c_str(), times);
+   }
+
+   Res.LastModified = FailTime;
+   Res.TakeHashes(Hash);
+
+   URIDone(Res);
+
+   return true;
+}
+									/*}}}*/
+
+int main(int, const char *argv[])
+{
+   return HttpMethod(flNotDir(argv[0])).Run();
+}
