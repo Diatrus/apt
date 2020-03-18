@@ -22,9 +22,9 @@ set(CMAKE_EXE_LINKER_FLAGS_COVERAGE "-lgcov")
 set(CMAKE_SHARED_LINKER_FLAGS_COVERAGE "-lgcov")
 
 # Work around bug in GNUInstallDirs
-if (EXISTS "/etc/debian_version")
-  set(CMAKE_INSTALL_LIBEXECDIR "lib")
-endif()
+#if (EXISTS "/etc/debian_version")
+#  set(CMAKE_INSTALL_LIBEXECDIR "lib")
+#endif()
 
 # Include stuff
 include(Misc)
