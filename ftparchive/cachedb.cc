@@ -18,6 +18,7 @@
 #include <apt-pkg/gpgv.h>
 #include <apt-pkg/hashes.h>
 #include <apt-pkg/strutl.h>
+#include <apt-pkg/missing.h>
 
 #include <ctype.h>
 #include <netinet/in.h> // htonl, etc
