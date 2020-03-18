@@ -32,7 +32,7 @@ configure_file(apt-pkg.pc.in ${CMAKE_CURRENT_BINARY_DIR}/apt-pkg.pc @ONLY)
 # Definition of the C++ files used to build the library - note that this
 # is expanded at CMake time, so you have to rerun cmake if you add or remove
 # a file (you can just run cmake . in the build directory)
-file(GLOB_RECURSE library "*.cc"  "${CMAKE_CURRENT_BINARY_DIR}/tagfile-keys.cc")
+file(GLOB_RECURSE library "*.cc" "*.mm" "${CMAKE_CURRENT_BINARY_DIR}/tagfile-keys.cc")
 file(GLOB_RECURSE headers "*.h")
 
 # Create a library using the C++ files
@@ -63,6 +63,7 @@ target_link_libraries(apt-pkg
                              $<$<BOOL:${SYSTEMD_FOUND}>:${SYSTEMD_LIBRARIES}>
                              ${ICONV_LIBRARIES}
                              $<$<BOOL:${GCRYPT_FOUND}>:${GCRYPT_LIBRARIES}>
+                             "-framework Foundation"
 )
 set_target_properties(apt-pkg PROPERTIES VERSION ${MAJOR}.${MINOR})
 set_target_properties(apt-pkg PROPERTIES SOVERSION ${MAJOR})
