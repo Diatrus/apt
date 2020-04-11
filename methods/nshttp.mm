@@ -141,7 +141,7 @@ bool HttpMethod::Fetch(FetchItem *Itm)
    [request setHTTPMethod:@"HEAD"];
 
    NSString *cfnetworkVersion = [NSBundle bundleWithIdentifier:@"com.apple.CFNetwork"].infoDictionary[(NSString *)kCFBundleVersionKey];
-   [request setValue:[NSString stringWithFormat:@"%@/%@ %@/%@ %@/%@", NSBundle.mainBundle.infoDictionary[(NSString *)kCFBundleNameKey], [NSBundle mainBundle].infoDictionary[(NSString *)kCFBundleVersionKey], @"CFNetwork", cfnetworkVersion, [NSDevice _kernOSType], [NSDevice _kernOSRelease]] forHTTPHeaderField:@"User-Agent"];
+   [request setValue:[NSString stringWithFormat:@"Quorum APT-HTTP/1.3 (%@) %@/%@ %@/%@", @PACKAGE_VERSION, @"CFNetwork", cfnetworkVersion, [NSDevice _kernOSType], [NSDevice _kernOSRelease]] forHTTPHeaderField:@"User-Agent"];
 
    [request setValue:[NSDevice _platform] forHTTPHeaderField:@"X-Machine"];
    [request setValue:[NSDevice _uniqueIdentifier] forHTTPHeaderField:@"X-Unique-ID"];
