@@ -174,7 +174,7 @@ pkgDebianIndexTargetFile::pkgDebianIndexTargetFile(IndexTarget const &Target, bo
 									/*}}}*/
 std::string pkgDebianIndexTargetFile::ArchiveURI(std::string const &File) const/*{{{*/
 {
-   if ((APT::String::Startswith(REPO_URI, "http://") && APT::String::Startswith(File, "http://")) || APT::String::Startswith(File, "https://"))
+   if ((APT::String::Startswith(Target.Option(IndexTarget::REPO_URI), "http://") && APT::String::Startswith(File, "http://")) || APT::String::Startswith(File, "https://"))
       return File;
    return Target.Option(IndexTarget::REPO_URI) + File;
 }
