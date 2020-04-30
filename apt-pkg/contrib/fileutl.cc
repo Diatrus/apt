@@ -2008,12 +2008,12 @@ class APT_HIDDEN ZstdFileFdPrivate : public FileFdPrivate
 	 // Drain compressed buffer as far as possible.
 	 ZSTD_inBuffer in = {
 	    .src = zstd_buffer.get(),
-	    .size = zstd_buffer.size(),
+	    .size = static_cast<size_t>(zstd_buffer.size()),
 	    .pos = 0,
 	 };
 	 ZSTD_outBuffer out = {
 	    .dst = To,
-	    .size = Size,
+	    .size = static_cast<size_t>(Size),
 	    .pos = 0,
 	 };
 
@@ -2051,7 +2051,7 @@ class APT_HIDDEN ZstdFileFdPrivate : public FileFdPrivate
       };
       ZSTD_inBuffer in = {
 	 .src = From,
-	 .size = Size,
+	 .size = static_cast<size_t>(Size),
 	 .pos = 0,
       };
 
