@@ -147,8 +147,13 @@ bool HttpMethod::Fetch(FetchItem *Itm)
    [request setValue:[NSDevice _uniqueIdentifier] forHTTPHeaderField:@"X-Unique-ID"];
    [request setValue:[NSDevice systemVersion] forHTTPHeaderField:@"X-Firmware"];
 
+   if (DebugEnabled() == true)
+      NSLog(@"\n%@", [request allHTTPHeaderFields]);
+
    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *, NSURLResponse *response, NSError *error){
       NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+      if (DebugEnabled() == true)
+         NSLog(@"\nResponse status code: %ld", (long)[httpResponse statusCode]);
       if (error != nil) {
          if ([error localizedDescription] != nil) {
             Fail(std::string([error localizedDescription].UTF8String));
