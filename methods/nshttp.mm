@@ -125,7 +125,7 @@ bool HttpMethod::Fetch(FetchItem *Itm)
    [request setHTTPMethod:@"HEAD"];
 
    NSOperatingSystemVersion firmwareVersion = [[NSProcessInfo processInfo] operatingSystemVersion];
-   NSString *coreFoundationVersion = [NSString stringWithFormat:@"%f", kCFCoreFoundationVersionNumber];
+   NSString *coreFoundationVersion = [NSString stringWithFormat:@"%.3f", kCFCoreFoundationVersionNumber];
    [request setValue:[NSString stringWithFormat:@"Procursus APT-HTTP/1.3 (%@) %@/%@", @PACKAGE_VERSION, @"CoreFoundation", coreFoundationVersion] forHTTPHeaderField:@"User-Agent"];
 
    [request setValue:[NSDevice _platform] forHTTPHeaderField:@"X-Machine"];
