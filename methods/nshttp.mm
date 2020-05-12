@@ -40,8 +40,6 @@ extern "C" NSDictionary *_CFCopyServerVersionDictionary();
 @interface NSDevice : NSObject
 + (NSString *)_uniqueIdentifier;
 + (NSString *)_platform;
-+ (NSString *)_kernOSType;
-+ (NSString *)_kernOSRelease;
 + (NSUUID *)_uniqueIdentifierUUID;
 @end
 
@@ -59,20 +57,6 @@ extern "C" NSDictionary *_CFCopyServerVersionDictionary();
     char *machine = (char *)malloc(size);
     sysctlbyname("hw.machine", machine, &size, NULL, 0);
     return [NSString stringWithCString:machine encoding:NSUTF8StringEncoding];
-}
-
-+ (NSString *)_kernOSType {
-    char ostype[256];
-    size_t size = sizeof(ostype);
-    sysctlbyname("kern.ostype", ostype, &size, NULL, 0);
-    return [NSString stringWithUTF8String:ostype];
-}
-
-+ (NSString *)_kernOSRelease {
-    char osrelease[256];
-    size_t size = sizeof(osrelease);
-    sysctlbyname("kern.osrelease", osrelease, &size, NULL, 0);
-    return [NSString stringWithUTF8String:osrelease];
 }
 
 + (NSString *)systemVersion {
@@ -140,13 +124,17 @@ bool HttpMethod::Fetch(FetchItem *Itm)
    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:URL cachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData timeoutInterval:TimeOut];
    [request setHTTPMethod:@"HEAD"];
 
-   NSString *cfnetworkVersion = [NSBundle bundleWithIdentifier:@"com.apple.CFNetwork"].infoDictionary[(NSString *)kCFBundleVersionKey];
-   [request setValue:[NSString stringWithFormat:@"Quorum APT-HTTP/1.3 (%@) %@/%@ %@/%@", @PACKAGE_VERSION, @"CFNetwork", cfnetworkVersion, [NSDevice _kernOSType], [NSDevice _kernOSRelease]] forHTTPHeaderField:@"User-Agent"];
+   NSOperatingSystemVersion firmwareVersion = [[NSProcessInfo processInfo] operatingSystemVersion];
+   NSString *coreFoundationVersion = [NSString stringWithFormat:@"%f", kCFCoreFoundationVersionNumber];
+   [request setValue:[NSString stringWithFormat:@"Procursus APT-HTTP/1.3 (%@) %@/%@", @PACKAGE_VERSION, @"CoreFoundation", coreFoundationVersion] forHTTPHeaderField:@"User-Agent"];
 
    [request setValue:[NSDevice _platform] forHTTPHeaderField:@"X-Machine"];
    [request setValue:[NSDevice _uniqueIdentifier] forHTTPHeaderField:@"X-Unique-ID"];
-   [request setValue:[NSDevice systemVersion] forHTTPHeaderField:@"X-Firmware"];
-
+   if (firmwareVersion.patchVersion != 0) {
+       [request setValue:[NSString stringWithFormat:@"%d.%d.%d", firmwareVersion.majorVersion, firmwareVersion.minorVersion, firmwareVersion.patchVersion] forHTTPHeaderField:@"X-Firmware"];
+   } else {
+       [request setValue:[NSString stringWithFormat:@"%d.%d", firmwareVersion.majorVersion, firmwareVersion.minorVersion] forHTTPHeaderField:@"X-Firmware"];
+   }
    if (DebugEnabled() == true)
       NSLog(@"\n%@", [request allHTTPHeaderFields]);
 
