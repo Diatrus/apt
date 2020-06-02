@@ -61,6 +61,8 @@ pkgSimulate::pkgSimulate(pkgDepCache *Cache) : pkgPackageManager(Cache),
    string Jnk = "SIMULATE";
    for (decltype(PackageCount) I = 0; I != PackageCount; ++I)
       FileNames[I] = Jnk;
+
+   Cache->CheckConsistency("simulate");
 }
 									/*}}}*/
 // Simulate::~Simulate - Destructor					/*{{{*/
@@ -698,7 +700,8 @@ bool pkgProblemResolver::DoUpgrade(pkgCache::PkgIterator Pkg)
    Flags[Pkg->ID] &= ~Upgradable;
    
    bool WasKept = Cache[Pkg].Keep();
-   Cache.MarkInstall(Pkg, false, 0, false);
+   if (not Cache.MarkInstall(Pkg, false, 0, false))
+     return false;
 
    // This must be a virtual package or something like that.
    if (Cache[Pkg].InstVerIter(Cache).end() == true)
@@ -732,7 +735,7 @@ bool pkgProblemResolver::DoUpgrade(pkgCache::PkgIterator Pkg)
 	 
 	 // Do not change protected packages
 	 PkgIterator P = Start.SmartTargetPkg();
-	 if ((Flags[P->ID] & Protected) == Protected)
+	 if (Cache[P].Protect())
 	 {
 	    if (Debug == true)
 	       clog << "    Reinst Failed because of protected " << P.FullName(false) << endl;
@@ -819,6 +822,9 @@ bool pkgProblemResolver::ResolveInternal(bool const BrokenFix)
 {
    pkgDepCache::ActionGroup group(Cache);
 
+   if (Debug)
+      Cache.CheckConsistency("resolve start");
+
    // Record which packages are marked for install
    bool Again = false;
    do
@@ -899,7 +905,7 @@ bool pkgProblemResolver::ResolveInternal(bool const BrokenFix)
 	 if (Cache[I].CandidateVer != Cache[I].InstallVer &&
 	     I->CurrentVer != 0 && Cache[I].InstallVer != 0 &&
 	     (Flags[I->ID] & PreInstalled) != 0 &&
-	     (Flags[I->ID] & Protected) == 0 &&
+	     not Cache[I].Protect() &&
 	     (Flags[I->ID] & ReInstateTried) == 0)
 	 {
 	    if (Debug == true)
@@ -948,7 +954,7 @@ bool pkgProblemResolver::ResolveInternal(bool const BrokenFix)
 	       {
 		  if (OrOp == OrRemove)
 		  {
-		     if ((Flags[I->ID] & Protected) != Protected)
+		     if (not Cache[I].Protect())
 		     {
 			if (Debug == true)
 			   clog << "  Or group remove for " << I.FullName(false) << endl;
@@ -1002,7 +1008,7 @@ bool pkgProblemResolver::ResolveInternal(bool const BrokenFix)
 	       targets then we keep the package and bail. This is necessary
 	       if a package has a dep on another package that can't be found */
 	    std::unique_ptr<pkgCache::Version *[]> VList(Start.AllTargets());
-	    if (VList[0] == 0 && (Flags[I->ID] & Protected) != Protected &&
+	    if (VList[0] == 0 && not Cache[I].Protect() &&
 		Start.IsNegative() == false &&
 		Cache[I].NowBroken() == false)
 	    {	       
@@ -1049,7 +1055,7 @@ bool pkgProblemResolver::ResolveInternal(bool const BrokenFix)
 		    End.IsNegative() == false))
 	       {
 		  // Try a little harder to fix protected packages..
-		  if ((Flags[I->ID] & Protected) == Protected)
+		  if (Cache[I].Protect())
 		  {
 		     if (DoUpgrade(Pkg) == true)
 		     {
@@ -1136,7 +1142,7 @@ bool pkgProblemResolver::ResolveInternal(bool const BrokenFix)
 		  }
 
 		  // Skip adding to the kill list if it is protected
-		  if ((Flags[Pkg->ID] & Protected) != 0)
+		  if (Cache[Pkg].Protect())
 		     continue;
 		
 		  if (Debug == true)
@@ -1152,7 +1158,7 @@ bool pkgProblemResolver::ResolveInternal(bool const BrokenFix)
 	    // Hm, nothing can possibly satisfy this dep. Nuke it.
 	    if (VList[0] == 0 &&
 		Start.IsNegative() == false &&
-		(Flags[I->ID] & Protected) != Protected)
+		not Cache[I].Protect())
 	    {
 	       bool Installed = Cache[I].Install();
 	       Cache.MarkKeep(I);
@@ -1232,7 +1238,7 @@ bool pkgProblemResolver::ResolveInternal(bool const BrokenFix)
       {
 	 if (Cache[I].InstBroken() == false)
 	    continue;
-	 if ((Flags[I->ID] & Protected) != Protected)
+	 if (not Cache[I].Protect())
 	    return _error->Error(_("Error, pkgProblemResolver::Resolve generated breaks, this may be caused by held packages."));
       }
       return _error->Error(_("Unable to correct problems, you have held broken packages."));
@@ -1250,6 +1256,8 @@ bool pkgProblemResolver::ResolveInternal(bool const BrokenFix)
       }
    }
 
+   if (Debug)
+      Cache.CheckConsistency("resolve done");
 
    return true;
 }
@@ -1309,6 +1317,9 @@ bool pkgProblemResolver::ResolveByKeepInternal()
 {
    pkgDepCache::ActionGroup group(Cache);
 
+   if (Debug)
+      Cache.CheckConsistency("keep start");
+
    MakeScores();
 
    /* We have to order the packages so that the broken fixing pass 
@@ -1352,7 +1363,7 @@ bool pkgProblemResolver::ResolveByKeepInternal()
 
       /* Keep the package. If this works then great, otherwise we have
 	 to be significantly more aggressive and manipulate its dependencies */
-      if ((Flags[I->ID] & Protected) == 0)
+      if (not Cache[I].Protect())
       {
 	 if (Debug == true)
 	    clog << "Keeping package " << I.FullName(false) << endl;
@@ -1400,7 +1411,7 @@ bool pkgProblemResolver::ResolveByKeepInternal()
 		   Pkg->CurrentVer == 0)
 		  continue;
 	       
-	       if ((Flags[I->ID] & Protected) == 0)
+	       if (not Cache[I].Protect())
 	       {
 		  if (Debug == true)
 		     clog << "  Keeping Package " << Pkg.FullName(false) << " due to " << Start.DepType() << endl;
@@ -1439,6 +1450,10 @@ bool pkgProblemResolver::ResolveByKeepInternal()
    }
 
    delete[] PList;
+
+   if (Debug)
+      Cache.CheckConsistency("keep done");
+
    return true;
 }
 									/*}}}*/
