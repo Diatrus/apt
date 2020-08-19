@@ -3481,7 +3481,7 @@ pkgAcqArchive::pkgAcqArchive(pkgAcquire *const Owner, pkgSourceList *const Sourc
    if (stat(FinalFile.c_str(), &Buf) == 0)
    {
       // Make sure the size matches
-      if ((unsigned long long)Buf.st_size == Version->Size)
+      if ((unsigned long long)Buf.st_size == Version->Size || (Buf.st_size != 0 && Version->Size == 0))
       {
 	 Complete = true;
 	 Local = true;
